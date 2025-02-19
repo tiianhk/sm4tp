@@ -1,11 +1,13 @@
 import dawdreamer as daw
 from constants import SAMPLE_RATE, BUFFER_SIZE
 
-def start_vital_synth(plugin_path, state_path=None):
+def start_vital_synth(plugin_path, state_path=None, open_editor=False):
     engine = daw.RenderEngine(SAMPLE_RATE, BUFFER_SIZE)
     vital = engine.make_plugin_processor('vital_synth', plugin_path)
     if state_path:
         vital.load_state(state_path)
+    if open_editor:
+        vital.open_editor()
     return engine, vital
 
 def check_changes(synth, old_param, new_param):
