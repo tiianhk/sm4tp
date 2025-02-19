@@ -1,0 +1,61 @@
+seed: 42
+sr: 44100
+num_samples: 10
+num_workers: 4
+# https://github.com/DBraun/Vita/blob/main/src/common/synth_parameters.h
+# https://github.com/DBraun/Vita/blob/main/src/common/synth_parameters.cpp
+# https://github.com/DBraun/Vita/blob/main/src/plugin/value_bridge.h
+parameter_ranges:
+  env_1_attack:
+    min: 0.0
+    max: 0.95
+    scale: quartic
+  env_1_decay:
+    min: 0.6
+    max: 0.95
+    scale: quartic
+  env_1_sustain:
+    min: 0.0
+    max: 1.0
+    scale: linear
+  filter_1_blend:
+    min: 0.0
+    max: 1.2
+    scale: linear
+  filter_1_cutoff:
+    min: 30.0
+    max: 110.0
+    scale: linear
+  osc_1_distortion_amount:
+    min: 0.0
+    max: 0.9
+    scale: linear
+  osc_1_unison_detune:
+    min: 0.0
+    max: 3.0
+    scale: quadratic
+  osc_1_distortion_type:
+    min: 0
+    max: 6
+    scale: indexed
+  osc_1_unison_voices:
+    min: 1
+    max: 16
+    scale: indexed
+  osc_1_wave_frame:
+    min: 0
+    max: 6
+    scale: indexed # for basic shapes
+    value_mapping:
+      0: 0.0
+      1: 50.0
+      2: 80.0
+      3: 110.0
+      4: 160.0
+      5: 210.0
+      6: 240.0
+pitch:
+  min: 48
+  max: 72
+max_duration: 2.0
+velocity: 0.7

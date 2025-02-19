@@ -1,27 +1,13 @@
-import dawdreamer as daw
-from constants import SAMPLE_RATE, BUFFER_SIZE
+import yaml
 
-def start_vital_synth(plugin_path, state_path=None, open_editor=False):
-    engine = daw.RenderEngine(SAMPLE_RATE, BUFFER_SIZE)
-    vital = engine.make_plugin_processor('vital_synth', plugin_path)
-    if state_path:
-        vital.load_state(state_path)
-    if open_editor:
-        vital.open_editor()
-    return engine, vital
+def load_config(config_path):
+    with open(config_path, 'r') as file:
+        return yaml.safe_load(file)
 
-def check_changes(synth, old_param, new_param):
-    for i in range(len(old_param)):
-        if old_param[i] != new_param[i]:
-            print(f'Parameter {i}: {synth.get_parameter_name(i)} '
-                  f'changed from {old_param[i]} to {new_param[i]}')
-
-def strip_unit_and_get_value(synth, idx):
-    return float(synth.get_parameter_text(idx).split()[0])
-
-def change_parameters_manually(synth):
-    num = synth.get_plugin_parameter_size()
-    old_param = [synth.get_parameter(i) for i in range(num)]
-    synth.open_editor()
-    new_param = [synth.get_parameter(i) for i in range(num)]
-    check_changes(synth, old_param, new_param)
+def write_preset(synth, preset_path):
+    json_text = synth.to_json()
+    # https://github.com/DBraun/Vita/issues/2
+    if 'version":"99999.9.9"' in json_text:
+        json_text = json_text.replace('version":"99999.9.9"', 'version":"1.5.5"')
+    with open(preset_path, "w") as f:
+        f.write(json_text)
