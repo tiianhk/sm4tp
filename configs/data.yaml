@@ -1,7 +1,6 @@
 seed: 42
 sr: 44100
-num_samples: 10
-num_workers: 4
+num_samples: 100000
 # https://github.com/DBraun/Vita/blob/main/src/common/synth_parameters.h
 # https://github.com/DBraun/Vita/blob/main/src/common/synth_parameters.cpp
 # https://github.com/DBraun/Vita/blob/main/src/plugin/value_bridge.h
@@ -42,10 +41,10 @@ parameter_ranges:
     min: 1
     max: 16
     scale: indexed
-  osc_1_wave_frame:
+  osc_1_wave_frame: # configs for the 'Basic Shapes' wavetable
     min: 0
     max: 6
-    scale: indexed # for basic shapes
+    scale: indexed
     value_mapping:
       0: 0.0
       1: 50.0
@@ -57,5 +56,5 @@ parameter_ranges:
 pitch:
   min: 48
   max: 72
-max_duration: 2.0
-velocity: 0.7
+max_note_duration: 2.0
+velocity: 1.0

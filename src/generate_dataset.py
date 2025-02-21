@@ -28,6 +28,7 @@ def main():
 
         y = torch.zeros(11)
 
+        attack_and_decay = 0.0
         for idx, (param, details) in enumerate(config['parameter_ranges'].items()):
             min_, max_ = details['min'], details['max']
             if details['scale'] == 'indexed':
@@ -38,18 +39,21 @@ def main():
             else:
                 value = random.uniform(min_, max_)
                 y_true = (value - min_) / (max_ - min_)
+            if param == 'env_1_attack' or param == 'env_1_decay':
+                attack_and_decay += value ** 4 # quartic
             controls[param].set(value)
             y[idx] = y_true
         
         pitch = random.randint(config['pitch']['min'], config['pitch']['max'])
         y[-1] = pitch - config['pitch']['min']
-
-        audio = synth.render(pitch, config['velocity'], 1, 2)
+        note_dur = random.uniform(attack_and_decay, config['max_note_duration'])
+        render_dur = note_dur + 0.09 # default release is 0.089
+        audio = synth.render(pitch, config['velocity'], note_dur, render_dur)
 
         # write dataset
         wavfile.write(f'{DATA_DIR}/{i}.wav', config['sr'], audio[0])
         torch.save(y, f'{DATA_DIR}/{i}.pt')
-        write_preset(synth, f'{DATA_DIR}/{i}.vital')
+        # write_preset(synth, f'{DATA_DIR}/{i}.vital')
 
 if __name__ == '__main__':
     main()
