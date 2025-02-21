@@ -1,0 +1,8 @@
+seed: 42
+data:
+  sr: 44100
+  num_samples: 10000
+  batch_size: 32
+  max_duration: 2.1
+  val_split: 0.2
+  num_workers: 4
