@@ -6,7 +6,7 @@ import torch.nn.functional as F
 import lightning as L
 
 from paths import DATA_DIR, CONFIGS_DIR
-from utils import load_config
+from utils import load_yaml_config
 
 
 class VitalSoundDataset(Dataset):
@@ -19,30 +19,29 @@ class VitalSoundDataset(Dataset):
     
     def __getitem__(self, idx):
         idx = self.idx_list[idx]
-        wav_path = os.path.join(DATA_DIR, f"{idx}.wav")
-        pt_path = os.path.join(DATA_DIR, f"{idx}.pt")
+        audio_path = os.path.join(DATA_DIR, f"{idx}.wav")
+        synth_params_path = os.path.join(DATA_DIR, f"{idx}.pt")
         
         # Load the audio file
-        waveform, sample_rate = torchaudio.load(wav_path)
+        audio, sr = torchaudio.load(audio_path)
         
         # If audio duration is less than the max, pad it with zeros
-        num_samples = waveform.shape[1]
-        max_samples = int(self.max_duration * sample_rate)
+        num_samples = audio.shape[1]
+        max_samples = int(self.max_duration * sr)
         if num_samples < max_samples:
             padding = max_samples - num_samples
             # Pad the audio on the right side (last dimension)
-            waveform = F.pad(waveform, (0, padding))
+            audio = F.pad(audio, (0, padding))
         
-        # Load the target tensor
-        target = torch.load(pt_path)
+        # Load the synth parameters
+        synth_params = torch.load(synth_params_path)
         
-        return waveform, target
+        return audio, synth_params
 
 
 class VitalSoundDataModule(L.LightningDataModule):
     def __init__(self, config):
         super().__init__()
-        self.sample_rate = config['data']['sr']
         self.num_samples = config['data']['num_samples']
         self.batch_size = config['data']['batch_size']
         self.val_split = config['data']['val_split']
@@ -51,11 +50,13 @@ class VitalSoundDataModule(L.LightningDataModule):
         
     def setup(self, stage=None):
         
-        train_size = int(self.num_samples * (1 - self.val_split))
-        val_size = self.num_samples - train_size
+        val_size = int(self.num_samples * self.val_split)
+        train_size = self.num_samples - val_size
         all_indices = list(range(self.num_samples))
         
         train_indices, val_indices = random_split(all_indices, [train_size, val_size])
+        assert len(train_indices) == train_size
+        assert len(val_indices) == val_size
         
         # Create the datasets for train and validation
         self.train_dataset = VitalSoundDataset(train_indices, self.max_duration)
@@ -73,7 +74,7 @@ class VitalSoundDataModule(L.LightningDataModule):
 if __name__ == "__main__":
     
     # Load configuration from YAML file
-    config = load_config(os.path.join(CONFIGS_DIR, 'minimal_training.yaml'))
+    config = load_yaml_config(os.path.join(CONFIGS_DIR, 'minimal_training.yaml'))
 
     # Set seed for reproducibility
     L.seed_everything(config['seed'])
@@ -89,4 +90,5 @@ if __name__ == "__main__":
     # print first batch shape
     for batch in train_loader:
         print(batch[0].shape)
+        print(batch[1].shape)
         break

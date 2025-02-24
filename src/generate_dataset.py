@@ -7,13 +7,13 @@ import os
 import torch
 
 from paths import SRC_DIR, DATA_DIR
-from utils import load_config, write_preset
+from utils import load_yaml_config, write_preset
 
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--config', type=str, required=True)
     args = parser.parse_args()
-    config = load_config(args.config)
+    config = load_yaml_config(args.config)
     
     # init synth
     synth = vita.Synth()
@@ -33,14 +33,19 @@ def main():
             min_, max_ = details['min'], details['max']
             if details['scale'] == 'indexed':
                 value = random.randint(min_, max_)
-                if 'value_mapping' in details:
+                if param == 'osc_1_unison_voices':
+                    y_true = (value - min_) / (max_ - min_)
+                else:
+                    y_true = value - min_
+                if param == 'osc_1_wave_frame':
+                    assert 'value_mapping' in details
                     value = details['value_mapping'][value]
-                y_true = value - min_
             else:
                 value = random.uniform(min_, max_)
                 y_true = (value - min_) / (max_ - min_)
             if param == 'env_1_attack' or param == 'env_1_decay':
-                attack_and_decay += value ** 4 # quartic
+                assert details['scale'] == 'quartic'
+                attack_and_decay += value ** 4 # in seconds
             controls[param].set(value)
             y[idx] = y_true
         
@@ -53,7 +58,9 @@ def main():
         # write dataset
         wavfile.write(f'{DATA_DIR}/{i}.wav', config['sr'], audio[0])
         torch.save(y, f'{DATA_DIR}/{i}.pt')
-        # write_preset(synth, f'{DATA_DIR}/{i}.vital')
 
 if __name__ == '__main__':
+    import time
+    start = time.time()
     main()
+    print(f'used time: {time.time() - start}s')
