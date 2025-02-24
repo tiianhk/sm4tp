@@ -1,3 +1,4 @@
+data_dir: /data/scratch/acw751/vital_synth
 seed: 42
 sr: 44100
 num_samples: 500000
@@ -42,7 +43,7 @@ parameter_ranges:
     min: 0
     max: 6
     scale: indexed
-  osc_1_wave_frame: # configs for the 'Basic Shapes' wavetable
+  osc_1_wave_frame: # specifically for the 'Basic Shapes' wavetable
     min: 0
     max: 6
     scale: indexed

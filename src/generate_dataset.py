@@ -6,8 +6,8 @@ from tqdm import tqdm
 import os
 import torch
 
-from paths import SRC_DIR, DATA_DIR
-from utils import load_yaml_config, write_preset
+from paths import SRC_DIR
+from utils import load_yaml_config
 
 def main():
     parser = argparse.ArgumentParser()
@@ -21,6 +21,10 @@ def main():
     controls = synth.get_controls()
     controls['filter_1_on'].set(1.0)
     controls['stereo_routing'].set(0.0)
+    
+    data_dir = config['data_dir']
+    if not os.path.exists(data_dir):
+        os.makedirs(data_dir)
 
     # sample parameters
     random.seed(config['seed'])
@@ -56,8 +60,8 @@ def main():
         audio = synth.render(pitch, config['velocity'], note_dur, render_dur)
 
         # write dataset
-        wavfile.write(f'{DATA_DIR}/{i}.wav', config['sr'], audio[0])
-        torch.save(y, f'{DATA_DIR}/{i}.pt')
+        wavfile.write(f'{data_dir}/{i}.wav', config['sr'], audio[0])
+        torch.save(y, f'{data_dir}/{i}.pt')
 
 if __name__ == '__main__':
     import time
