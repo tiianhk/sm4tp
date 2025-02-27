@@ -1,9 +1,9 @@
 import torch
+from torch import Tensor
 import torch.nn.functional as F
 import lightning as L
 
 from models import Audio2LogMelSpec, CNNModel
-from torchmetrics import MeanAbsoluteError
 from torchmetrics.classification import MulticlassF1Score
 
 class VitalSoundMatching(L.LightningModule):
@@ -12,78 +12,86 @@ class VitalSoundMatching(L.LightningModule):
 
         self.config = config
         
-        # Initialize the mel spectrogram transformation
-        self.mel_transform = Audio2LogMelSpec(config['model']['sr'], 
-        config['model']['n_fft'], config['model']['hop_length'])
-        
-        # Initialize the CNN model
-        self.model = CNNModel(config['model']['continuous_params_num'], 
-        config['model']['class1_num'], config['model']['class2_num'], 
-        config['model']['class3_num'])
+        self.mel_spec = Audio2LogMelSpec(
+            config['model']['sr'], 
+            config['model']['n_fft'], 
+            config['model']['hop_length']
+        )
+
+        self.n_rgs = config['model']['num_regression_outputs']
+        self.n_cls = config['model']['num_classification_outputs']
+        self.cls_nums = config['model']['num_classes']
+    
+        self.model = CNNModel(self.n_rgs, self.n_cls, self.cls_nums)
 
         # eval
-        # self.mae_list = [MeanAbsoluteError() for _ in range(7)]
-        # F1 Metrics for classification outputs
-        self.f1_class1 = MulticlassF1Score(num_classes=config['model']['class1_num'])
-        self.f1_class2 = MulticlassF1Score(num_classes=config['model']['class2_num'])
-        self.f1_class3 = MulticlassF1Score(num_classes=config['model']['class3_num'])
+        self.f1 = []
+        for i in range(self.n_cls):
+            self.f1.append(MulticlassF1Score(num_classes=self.cls_nums[i]))
 
-    def forward(self, x):
-        # Apply mel spectrogram transformation
-        x = self.mel_transform(x)
+    def get_embedding_for_one_shot(self, x: Tensor) -> Tensor:
         
-        # Forward pass through the CNN model
-        continuous_output, class_output1, class_output2, class_output3 = self.model(x)
+        # compute mel spectrogram
+        x = self.mel_spec(x)
+
+        # add batch and channel dim if there is not
+        for _ in range(4 - x.dim()):
+            x = x.unsqueeze(0)
+
+        # forward pass through the net
+        embeddings = self.model.get_embedding(x)
         
-        return continuous_output, class_output1, class_output2, class_output3
+        return embeddings
+
+    def forward(self, x: Tensor) -> tuple[Tensor, list[Tensor]]:
+        
+        # compute mel spectrogram
+        x = self.mel_spec(x)
+
+        # forward pass through the net
+        pred_rgs, pred_cls = self.model(x)
+        
+        return pred_rgs, pred_cls
     
     def training_step(self, batch, batch_idx):
+        
+        # get batch data
         x, y = batch
-        # Forward pass
-        continuous_out, class_out1, class_out2, class_out3 = self(x)
         
-        # Compute MAE for continuous output (y[:,:7] corresponds to continuous values)
-        continuous_loss = torch.tensor(.0, device=self.device)
-        for i in range(7):
-            continuous_loss += F.l1_loss(continuous_out[:, i], y[:, i])
+        # forward pass
+        pred_rgs, pred_cls = self(x)
         
-        # Compute cross entropy loss for the classification tasks (using raw logits)
-        class_loss1 = F.cross_entropy(class_out1, y[:, 7].long())  # Class 1 (class1_num)
-        class_loss2 = F.cross_entropy(class_out2, y[:, 8].long())  # Class 2 (class2_num)
-        class_loss3 = F.cross_entropy(class_out3, y[:, 9].long())  # Class 3 (class3_num)
+        # compute loss
+        loss = torch.tensor(.0, device=self.device)
+        for i in range(self.n_rgs):
+            loss += F.l1_loss(pred_rgs[:, i], y[:, i])
+        for i in range(self.n_cls):
+            loss += F.cross_entropy(pred_cls[i], y[:, i + self.n_rgs].long())
         
-        # Total loss
-        total_loss = continuous_loss + class_loss1 + class_loss2 + class_loss3
-        return total_loss
+        return loss
 
     def on_validation_epoch_start(self):
-        self.maes = torch.zeros(7, device=self.device)
+        self.maes = torch.zeros(self.n_rgs, device=self.device)
         self.step_num = torch.tensor(0., device=self.device)
 
     def validation_step(self, batch, batch_idx):
         x, y = batch
-        continuous_out, class_out1, class_out2, class_out3 = self(x)
-        for i in range(7):
-            self.maes[i] += F.l1_loss(continuous_out[:, i], y[:, i])
-        self.f1_class1.update(class_out1, y[:, 7].long())
-        self.f1_class2.update(class_out2, y[:, 8].long())
-        self.f1_class3.update(class_out3, y[:, 9].long())
+        pred_rgs, pred_cls = self(x)
+        for i in range(self.n_rgs):
+            self.maes[i] += F.l1_loss(pred_rgs[:, i], y[:, i])
+        for i in range(self.n_cls):
+            self.f1[i].update(pred_cls[i], y[:, i + self.n_rgs].long())
         self.step_num += 1.
     
     def on_validation_epoch_end(self):
-        for i in range(10):
+        for i in range(self.n_rgs + self.n_cls):
             pname = self.config['model']['parameter_names'][i]
-            if i < 7:
+            if i < self.n_rgs:
                 self.log(f'val-l1/{pname}', self.maes[i] / self.step_num)
-            elif i == 7:
-                self.log(f'val-f1/{pname}', self.f1_class1.compute())
-            elif i == 8:
-                self.log(f'val-f1/{pname}', self.f1_class2.compute())
-            elif i == 9:
-                self.log(f'val-f1/{pname}', self.f1_class3.compute())
-        self.f1_class1.reset()
-        self.f1_class2.reset()
-        self.f1_class3.reset()
+            else:
+                self.log(f'val-f1/{pname}', self.f1[i - self.n_rgs].compute())
+        for i in range(self.n_cls):
+            self.f1[i].reset()
 
     def configure_optimizers(self):
         optimizer = torch.optim.Adam(self.parameters(), lr=1e-4)
@@ -97,8 +105,6 @@ if __name__ == '__main__':
     from paths import CONFIGS_DIR
     import os
 
-    os.environ["CUDA_VISIBLE_DEVICES"] = '1'
-
     # Load configuration from YAML file
     config = load_yaml_config(os.path.join(CONFIGS_DIR, 'minimal_training.yaml'))
 
@@ -111,7 +117,7 @@ if __name__ == '__main__':
 
     model = VitalSoundMatching(config)
 
-    trainer = L.Trainer(max_epochs=200, logger=TensorBoardLogger('lightning_logs', name='vitalsound_matching'))
+    trainer = L.Trainer(max_epochs=2, logger=TensorBoardLogger('lightning_logs', name='vitalsound_matching'))
 
     trainer.fit(model, data_module)
 

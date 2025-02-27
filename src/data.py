@@ -5,31 +5,32 @@ from torch.utils.data import Dataset, DataLoader, random_split
 import torch.nn.functional as F
 import lightning as L
 
-from paths import DATA_DIR, CONFIGS_DIR
+from paths import CONFIGS_DIR
 from utils import load_yaml_config
 
 
 class VitalSoundDataset(Dataset):
-    def __init__(self, idx_list, max_duration):
+    def __init__(self, data_dir, idx_list, duration):
+        self.data_dir = data_dir
         self.idx_list = idx_list
-        self.max_duration = max_duration
+        self.duration = duration
         
     def __len__(self):
         return len(self.idx_list)
     
     def __getitem__(self, idx):
         idx = self.idx_list[idx]
-        audio_path = os.path.join(DATA_DIR, f"{idx}.wav")
-        synth_params_path = os.path.join(DATA_DIR, f"{idx}.pt")
+        audio_path = os.path.join(self.data_dir, f"{idx}.wav")
+        synth_params_path = os.path.join(self.data_dir, f"{idx}.pt")
         
         # Load the audio file
         audio, sr = torchaudio.load(audio_path)
         
         # If audio duration is less than the max, pad it with zeros
         num_samples = audio.shape[1]
-        max_samples = int(self.max_duration * sr)
-        if num_samples < max_samples:
-            padding = max_samples - num_samples
+        target_sample_num = int(self.duration * sr)
+        if num_samples < target_sample_num:
+            padding = target_sample_num - num_samples
             # Pad the audio on the right side (last dimension)
             audio = F.pad(audio, (0, padding))
         
@@ -42,10 +43,11 @@ class VitalSoundDataset(Dataset):
 class VitalSoundDataModule(L.LightningDataModule):
     def __init__(self, config):
         super().__init__()
+        self.data_dir = config['data_dir']
         self.num_samples = config['data']['num_samples']
         self.batch_size = config['data']['batch_size']
         self.val_split = config['data']['val_split']
-        self.max_duration = config['data']['max_duration']
+        self.duration = config['data']['duration']
         self.num_workers = config['data']['num_workers']
         
     def setup(self, stage=None):
@@ -59,8 +61,8 @@ class VitalSoundDataModule(L.LightningDataModule):
         assert len(val_indices) == val_size
         
         # Create the datasets for train and validation
-        self.train_dataset = VitalSoundDataset(train_indices, self.max_duration)
-        self.val_dataset = VitalSoundDataset(val_indices, self.max_duration)
+        self.train_dataset = VitalSoundDataset(self.data_dir, train_indices, self.duration)
+        self.val_dataset = VitalSoundDataset(self.data_dir, val_indices, self.duration)
         
     def train_dataloader(self):
         return DataLoader(self.train_dataset, batch_size=self.batch_size, 
