@@ -5,7 +5,7 @@ data:
   batch_size: 32
   duration: 2.0
   val_split: 0.2
-  num_workers: 4
+  num_workers: 8
 model:
   sr: 44100
   n_fft: 2048
@@ -28,3 +28,11 @@ model:
     8: osc_1_distortion_type
     9: osc_1_wave_frame
     10: pitch
+optimizer:
+  lr: 0.0001
+trainer:
+  max_epochs: 100
+  val_check_interval: 1.0
+  version: full-three-splits
+validation:
+  n_splits: 3

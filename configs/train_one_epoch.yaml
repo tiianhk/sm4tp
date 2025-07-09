@@ -1,0 +1,38 @@
+data_dir: /data/scratch/acw751/vital_synth
+seed: 42
+data:
+  num_samples: 500000
+  batch_size: 32
+  duration: 2.0
+  val_split: 0.2
+  num_workers: 8
+model:
+  sr: 44100
+  n_fft: 2048
+  hop_length: 512
+  num_regression_outputs: 8
+  num_classification_outputs: 2 # 3 to include pitch; 2 to exclude pitch
+  num_classes:
+    - 7 # osc_1_distortion_type
+    - 7 # osc_1_wave_frame
+    - 25 # pitch
+  parameter_names:
+    0: env_1_attack
+    1: env_1_decay
+    2: env_1_sustain
+    3: filter_1_blend
+    4: filter_1_cutoff
+    5: osc_1_distortion_amount
+    6: osc_1_unison_detune
+    7: osc_1_unison_voices
+    8: osc_1_distortion_type
+    9: osc_1_wave_frame
+    10: pitch
+optimizer:
+  lr: 0.0001
+trainer:
+  max_epochs: 1
+  val_check_interval: 0.05
+  version: one-epoch-three-splits-with-test-v2
+validation:
+  n_splits: 3
