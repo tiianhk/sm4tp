@@ -1,4 +1,3 @@
-from typing import List
 import torch
 import torch.nn as nn
 from torch import Tensor
@@ -28,7 +27,7 @@ class smallCNNModel(nn.Module):
     def __init__(self, 
                  num_regression_outputs: int, 
                  num_classification_outputs: int, 
-                 num_classes: List[int]):
+                 num_classes: list[int]):
         super().__init__()
         
         # Define the convolutional layers
@@ -105,7 +104,7 @@ class CNNModel(nn.Module):
     def __init__(self, 
                  num_regression_outputs: int, 
                  num_classification_outputs: int, 
-                 num_classes: List[int]):
+                 num_classes: list[int]):
         super().__init__()
         
         # Initial layers with larger kernel
@@ -136,30 +135,89 @@ class CNNModel(nn.Module):
             for i in range(num_classification_outputs)
         ])
 
+        self.activations = {}
+        self._register_hooks()
+
+    def _register_hooks(self):
+        def get_activation(name):
+            def hook(model, input, output):
+                self.activations[name] = output
+            return hook
+        self.initial[1].register_forward_hook(get_activation('initial_conv'))
+        self.layer1[0].residual[1].register_forward_hook(get_activation('layer1_conv_0'))
+        self.layer2[0].residual[1].register_forward_hook(get_activation('layer2_conv_0'))
+        self.layer3[0].residual[1].register_forward_hook(get_activation('layer3_conv_0'))
+        self.layer4[0].residual[1].register_forward_hook(get_activation('layer4_conv_0'))
+
     def _make_layer(self, in_channels: int, out_channels: int, stride: int) -> nn.Sequential:
         return nn.Sequential(
             ResidualBlock(in_channels, out_channels, stride=stride),
             ResidualBlock(out_channels, out_channels)
         )
 
-    def get_embedding(self, x: Tensor) -> Tensor:
+    def get_task_embedding(self, x: Tensor) -> Tensor:
         # Initial processing
-        x = self.initial(x)
+        x = self.initial(x) # (B, 1, H, W) -> (B, 64, H/4, W/4)
         
         # Residual blocks
-        x = self.layer1(x)
-        x = self.layer2(x)
-        x = self.layer3(x)
-        x = self.layer4(x)
+        x = self.layer1(x) # (B, 64, H/4, W/4) -> (B, 64, H/4, W/4)
+        x = self.layer2(x) # (B, 64, H/4, W/4) -> (B, 128, H/8, W/8)
+        x = self.layer3(x) # (B, 128, H/8, W/8) -> (B, 256, H/16, W/16)
+        x = self.layer4(x) # (B, 256, H/16, W/16) -> (B, 256, H/32, W/32)
         
         # Global pooling and flatten
-        x = self.global_pool(x)
-        x = torch.flatten(x, 1)
-        x = self.fc_dropout(x)
+        x = self.global_pool(x) # (B, 256, H/32, W/32) -> (B, 256, 1, 1)
+        x = torch.flatten(x, start_dim=1) # (B, 256, 1, 1) -> (B, 256)
+        x = self.fc_dropout(x) # (B, 256) -> (B, 256)
+        return x
+
+    def get_style_embedding_Gatys(self, x: Tensor) -> Tensor:
+        """
+        Gatys, Leon A., Alexander S. Ecker, and Matthias Bethge. 
+        "Image style transfer using convolutional neural networks." 
+        CVPR 2016.
+        """
+        x = self.get_task_embedding(x) # feed forward computation to trigger hooks
+        style_x = []
+        size_counter = 0
+        for act in self.activations.values():
+            B, C, H, W = act.shape
+            size_counter += C ** 2
+            act = act.view(B, C, -1)
+            gram = torch.bmm(act, act.transpose(1, 2)) / (2* H * W)
+            gram = gram.view(B, -1)
+            style_x.append(gram)
+        style_x = torch.cat(style_x, dim=1)
+        assert style_x.shape[1] == size_counter
+        return style_x
+
+    def get_style_embedding_Huang(self, x: Tensor) -> Tensor:
+        """
+        Huang, Xun, and Serge Belongie. 
+        "Arbitrary style transfer in real-time with adaptive instance normalization." 
+        ICCV 2017.
+        """
+        x = self.get_task_embedding(x)  # Feed forward computation to trigger hooks
+        style_x = []
+        size_counter = 0
+        for act in self.activations.values():
+            B, C, H, W = act.shape
+            size_counter += 2 * C  # Each channel contributes mean and std
+            act = act.view(B, C, -1)  # Reshape to (B, C, H*W)
+            mean = act.mean(dim=2)  # (B, C)
+            std = act.std(dim=2, correction=0)  # (B, C) - Uses correction=0 for consistency
+            style_x.append(torch.cat([mean, std], dim=1))  # (B, 2*C)
+        style_x = torch.cat(style_x, dim=1)  # Concatenate across all layers
+        assert style_x.shape[1] == size_counter
+        return style_x
+
+    def unsqueeze_input(self, x: Tensor) -> Tensor:
+        for _ in range(4 - x.dim()):
+            x = x.unsqueeze(0)
         return x
 
     def forward(self, x: Tensor) -> tuple:
-        x = self.get_embedding(x)
+        x = self.get_task_embedding(x)
         
         # Output heads
         regression = torch.sigmoid(self.regression_head(x))
@@ -167,6 +225,7 @@ class CNNModel(nn.Module):
         
         return regression, classifications
 
+# ---------- example code ---------- #
 
 if __name__ == '__main__':
     
@@ -177,7 +236,8 @@ if __name__ == '__main__':
     import os
     
     # Load configuration from YAML file
-    config = load_yaml_config(os.path.join(CONFIGS_DIR, 'minimal_training.yaml'))
+    config = load_yaml_config(os.path.join(CONFIGS_DIR, 'train_one_epoch.yaml'))
+    config['data']['num_workers'] = 0 # testing with a single CPU core
 
     # Set seed for reproducibility
     L.seed_everything(config['seed'])
@@ -208,13 +268,22 @@ if __name__ == '__main__':
     print(f"Total number of parameters: {total_params}")
 
     for batch in train_loader:
+        print('\nFor one batch of training data:')
+        
         x, y = batch
         x = spec(x)
-        print(x.shape)
-        print(y.shape)
-        embeddings = model.get_embedding(x)
+        print('input spectrogram shape:', x.shape)
+        print('label shape:', y.shape)
+        
+        task_emb = model.get_task_embedding(x)
+        Gatyes_emb = model.get_style_embedding_Gatys(x)
+        Huang_emb = model.get_style_embedding_Huang(x)
+        print('task embedding shape:', task_emb.shape)
+        print('Gatyes embedding shape:', Gatyes_emb.shape)
+        print('Huang embedding shape:', Huang_emb.shape)
+        
         regression, classifications = model(x)
-        print(embeddings.shape)
-        print(regression.shape)
-        print([cls.shape for cls in classifications])
+        print('regression prediction shape:', regression.shape)
+        print('classfication prediction shapes:', [cls_.shape for cls_ in classifications])
+        
         break
