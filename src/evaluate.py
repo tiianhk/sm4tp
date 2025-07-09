@@ -1,127 +1,60 @@
-from typing import Callable
+import lightning as L
+import os
+
 import torch
-import torch.nn as nn
-import torch.nn.functional as F
-from torchmetrics.functional import pairwise_cosine_similarity
+from timbremetrics import TimbreMetric, print_results, list_datasets
+from timbremetrics.utils import merge_metrics
+from sklearn.model_selection import KFold
 
-from utils import list_datasets, get_audio, get_raw_true_dissim
+from paths import CHECKPOINTS_DIR, CONFIGS_DIR
+from utils import load_yaml_config
 
+def main():
 
-def infer_audio_embeddings_with(model: nn.Module, num_samples: int):
-    '''
-    for this function to work, model should take input shape (n_samples)
-    generally, model should take input shapes (..., n_samples)
-    ref: torchaudio.transforms.MelSpectrogram takes (..., n_samples)
-    '''
-    if model.training:
-        model.eval()
-    audio = get_audio()
-    
-    embeddings = {}
-    for d in audio.keys():
-        embeddings[d] = _extract_dataset_embeddings(model, audio[d], num_samples)
-    return embeddings
+    config = load_yaml_config(os.path.join(CONFIGS_DIR, 'train_one_epoch.yaml'))
 
+    n_splits = config['validation']['n_splits']
+    kf = KFold(n_splits=n_splits, shuffle=True, random_state=config['seed'])
+    timbre_space_datasets = list_datasets()
 
-@torch.no_grad()
-def _extract_dataset_embeddings(model: nn.Module, dataset: list, num_samples: int):
-    
-    first_param = next(model.parameters())
-    dtype = first_param.dtype
-    device = first_param.device
-    embeddings = []
-    for x in dataset:
-        audio_tensor = torch.tensor(x["audio"], dtype=dtype, device=device)
-        if audio_tensor.shape[-1] < num_samples:
-            audio_tensor = F.pad(audio_tensor, (0, num_samples - audio_tensor.shape[0]))
-        assert hasattr(model, 'get_embedding_for_one_shot')
-        embedding = model.get_embedding_for_one_shot(audio_tensor)
-        embedding = embedding.flatten()
-        embeddings.append(embedding)
-    
-    if len(set([embedding.shape for embedding in embeddings])) > 1:
-        raise ValueError(
-            "The model is outputting embeddings of different shapes. "
-            + "All embeddings must have the same shape."
-        )
-    
-    return torch.stack(embeddings)
+    one_epoch_dir = os.path.join(CHECKPOINTS_DIR, 'one-epoch-three-splits-with-test-v2')
+    one_epoch_files = sorted(os.listdir(one_epoch_dir))
 
+    all_ = {} # super nested. > rep > split_id > dist > metric > test_score
 
-def get_pred_dissim(model: nn.Module, num_samples: int):
-    emb = infer_audio_embeddings_with(model, num_samples)
-    pred_dissim = {}
-    for d in emb.keys():
-        x = 1 - pairwise_cosine_similarity(emb[d])
-        pred_dissim[d] = min_max_normalization(mask(x))
-    return pred_dissim
+    for i in range(len(one_epoch_files)):
+        splits = one_epoch_files[i].split('=')
+        valid_score = float(splits[1][1:6])
+        test_score = float(splits[1][8:13])
+        parts = splits[0].split('-')
+        rep = parts[1].split('_')[-1]
+        if rep not in all_:
+            all_[rep] = {}
+        split_id = int(parts[2][-1]) - 1
+        if split_id not in all_[rep]:
+            all_[rep][split_id] = {}
+        dist = parts[3].split('_')[0]
+        if dist not in all_[rep][split_id]:
+            all_[rep][split_id][dist] = {}
+        metric = parts[3].split('_')[1:]
+        metric = '_'.join(metric)
+        all_[rep][split_id][dist][metric] = test_score
 
+    test_sets = []
+    for valid_idx, test_idx in kf.split(timbre_space_datasets):
+        test_sets.append([timbre_space_datasets[i] for i in test_idx])
 
-def min_max_normalization(a):
-    return (a - a.min()) / (a.max() - a.min()) # order-preserving
-
-
-def mask(x):
-    mask = torch.ones_like(x).triu(1)
-    return mask * x # keep the upper triangle
-
-
-def get_true_dissim(device):
-    true_dissim = get_raw_true_dissim()
-    for d in true_dissim.keys():
-        x = torch.tensor(true_dissim[d], device=device)
-        true_dissim[d] = min_max_normalization(mask(x))
-    return true_dissim
-
-
-def mae(pred, true):
-    N = pred.shape[0]
-    count = N * (N - 1) / 2
-    absolute_error = torch.sum(torch.abs(pred - true))
-    return absolute_error / count
-
-
-def mse(pred, true):
-    N = pred.shape[0]
-    count = N * (N - 1) / 2
-    squared_error = torch.sum((pred - true) ** 2)
-    return squared_error / count
-
-
-def compute_timbre_metrics(model: nn.Module, metrics: list[Callable], num_samples: int):
-    pred_dissim = get_pred_dissim(model, num_samples)
-    device = next(iter(pred_dissim.values())).device
-    true_dissim = get_true_dissim(device)
-    results = {}
-    for metric in metrics:
-        value = torch.tensor(0., device=device)
-        for d in pred_dissim.keys():
-            value += metric(pred_dissim[d], true_dissim[d])
-        results[metric.__name__] = value / len(list(pred_dissim.keys()))
-    return results
-
-# the sample rate od sounds/ is also 44100 but is not check now
-
+    for rep in all_:
+        merged_scores = {} # > dist > metric > test_score
+        dists = list(all_[rep][0].keys())
+        for dist in dists:
+            metrics_list = [all_[rep][i][dist] for i in range(n_splits)]
+            merged_scores[dist] = merge_metrics(metrics_list, test_sets)
+        print(f"{rep}:")
+        for dist in merged_scores:
+            print(f"  {dist}:")
+            for metric in merged_scores[dist]:
+                print(f"    {metric}: {merged_scores[dist][metric]: .3f}")
 
 if __name__ == '__main__':
-    
-    import os
-    import lightning as L
-    from lightning_module import VitalSoundMatching
-    from utils import load_yaml_config
-    from paths import CONFIGS_DIR
-
-    # load config
-    config = load_yaml_config(os.path.join(CONFIGS_DIR, 'minimal_training.yaml'))
-    
-    # set random seed
-    L.seed_everything(config['seed'])
-    
-    model = VitalSoundMatching(config)
-
-    res = compute_timbre_metrics(
-        model = model,
-        metrics = [mae,mse],
-        num_samples = int(config['data']['duration'] * config['model']['sr'])
-    )
-    print(res)
+    main()
