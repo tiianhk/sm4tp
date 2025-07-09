@@ -174,5 +174,5 @@ cython_debug/
 .pypirc
 
 # custom
-data/
-lightning_logs/
+logs/
+checkpoints/

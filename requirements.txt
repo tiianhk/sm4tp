@@ -52,6 +52,7 @@ soundfile==0.13.1
 sympy==1.13.1
 tensorboard==2.19.0
 tensorboard-data-server==0.7.2
+timbremetrics @ git+https://github.com/tiianhk/timbremetrics.git@aa4dfe3135ecbdc41179405816c6baf8a7c01ebf
 torch==2.6.0
 torchaudio==2.6.0
 torchmetrics==1.6.1
