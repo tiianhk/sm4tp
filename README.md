@@ -1,4 +1,5 @@
 # Sound Matching for Timbre Perception
+This repo contains code that trains and evaluates a sound matching model that predicts selected synth parameters of the Vital synthesizer. We are interested in whether, via this task, the model can learn meaningful representations that align with timbre similarity perception. We use [timbremetrics](https://github.com/tiianhk/timbremetrics) to evaluate this alignment.
 
 ## Setup
 1. Install [uv](https://github.com/astral-sh/uv).
