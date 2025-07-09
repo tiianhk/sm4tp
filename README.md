@@ -15,11 +15,11 @@ uv pip install -r requirements.txt
 ```
 
 ## Data Generation
-The data generation process is configured by `configs/generate_dataset.yaml`.
-Update the `data_dir` field to point to your own data directory — the current path is specific to my setup and will not work for you.
+The data generation process is configured by `configs/generate_dataset.yaml`. \
+Update the `data_dir` field to point to your own data directory — the current path is specific to my setup and will not work for you. \
 Run the following command to generate 500k (audio, synth parameters) pairs:
 ```
 uv run src/generate_dataset.py --config configs/generate_dataset.yaml
 ```
-This process will take approximately **8 hours** on a single CPU core.
+This process will take approximately **8 hours** on a single CPU core. \
 To test things first, set a smaller value for `num_samples` in the config before generating the full dataset.
