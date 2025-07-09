@@ -5,9 +5,6 @@ from torch.utils.data import Dataset, DataLoader, random_split
 import torch.nn.functional as F
 import lightning as L
 
-from paths import CONFIGS_DIR
-from utils import load_yaml_config
-
 
 class VitalSoundDataset(Dataset):
     def __init__(self, data_dir, idx_list, duration):
@@ -72,11 +69,16 @@ class VitalSoundDataModule(L.LightningDataModule):
         return DataLoader(self.val_dataset, batch_size=self.batch_size, 
             shuffle=False, num_workers=self.num_workers)
 
+# ---------- example code ---------- #
 
 if __name__ == "__main__":
+
+    from paths import CONFIGS_DIR
+    from utils import load_yaml_config
     
     # Load configuration from YAML file
-    config = load_yaml_config(os.path.join(CONFIGS_DIR, 'minimal_training.yaml'))
+    config = load_yaml_config(os.path.join(CONFIGS_DIR, 'train_one_epoch.yaml'))
+    config['data']['num_workers'] = 0 # testing with a single CPU core
 
     # Set seed for reproducibility
     L.seed_everything(config['seed'])
